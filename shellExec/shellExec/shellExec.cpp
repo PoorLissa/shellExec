@@ -2,7 +2,6 @@
 
 #include "stdafx.h"
 
-
 // -----------------------------------------------------------------------------------------------
 
 typedef std::pair<std::wstring, std::wstring>			mPairPath_App;
@@ -10,8 +9,47 @@ typedef std::multimap<std::wstring, mPairPath_App>		appMap;
 
 appMap mMap;
 bool useDefault = false;
+static HANDLE console = nullptr;
+
+#define clGreen		FOREGROUND_GREEN|								  FOREGROUND_INTENSITY
+#define clWhite		FOREGROUND_RED	|FOREGROUND_GREEN|FOREGROUND_BLUE
+#define clYellow	FOREGROUND_GREEN|FOREGROUND_RED	 |				  FOREGROUND_INTENSITY
+
+inline std::ostream&  green	(std::ostream &s)  { SetConsoleTextAttribute(console, clGreen );	return s; }
+inline std::ostream&  white	(std::ostream &s)  { SetConsoleTextAttribute(console, clWhite );	return s; }
+inline std::ostream&  yellow(std::ostream &s)  { SetConsoleTextAttribute(console, clYellow);	return s; }
+inline std::wostream& green	(std::wostream &s) { SetConsoleTextAttribute(console, clGreen );	return s; }
+inline std::wostream& white	(std::wostream &s) { SetConsoleTextAttribute(console, clWhite );	return s; }
+inline std::wostream& yellow(std::wostream &s) { SetConsoleTextAttribute(console, clYellow);	return s; }
 
 // -----------------------------------------------------------------------------------------------
+
+void doPrint(const char *str, const char *param = "", bool isYellow = false)
+{
+	if( isYellow )
+		std::cout << yellow;
+	else
+		std::cout << green;
+	
+	std::cout << " --> " << str << param << white << std::endl;
+}
+// -----------------------------------------------------------------------------------------------
+
+void doPrint(const wchar_t *str, const wchar_t *param = L"", bool isYellow = false)
+{
+	if( isYellow )
+		std::wcout << yellow;
+	else
+		std::wcout << green;
+	
+	std::wcout << " --> " << str << param << white << std::endl;
+}
+// -----------------------------------------------------------------------------------------------
+
+void aaa(std::ostream &a)
+{
+	return;
+}
 
 std::wstring getName(const std::wstring &file)
 {
@@ -52,7 +90,7 @@ void shellExecFile(const std::wstring &file, const wchar_t *program = nullptr)
 
 	if( int(err) < 32 )
 	{
-		std::cout << "-- Error opening the file: " << err << std::endl;
+		doPrint("Error opening the file");
 	}
 }
 // -----------------------------------------------------------------------------------------------
@@ -77,52 +115,93 @@ int readFromIni(const wchar_t *exeFileName, appMap &map)
 	if( file.is_open() )
 	{
 		size_t len, pos, lineNo = 0;
-		std::wstring line, ext;
-		bool isOptions = false;
+		std::wstring line, ext, command, action;
 
 		while( std::getline(file, line) && error.empty() )
 		{
 			lineNo++;
 			len = line.length();
 
-			// Skip commentary and empty lines
+			// Skip commentary, short or empty lines
 			if( len > 3 && line[0] != '#' && line[0] != ';' )
 			{
-				// read options
-				if( line == L"[options]" )
+				if( line[0] == '[' )
 				{
-					isOptions = true;
-					continue;
-				}
+					command.clear();
+					 action.clear();
+						ext.clear();
 
-				if( isOptions )
-				{
-					if( line.find(L"use_default") != std::string::npos )
+					// get extension
+					if( line[1] == '.' && line[len-1] == ']' )
 					{
-						useDefault = line[len-1] == '1';
+						ext = line.substr(1, len-2);
+						continue;
+					}
+
+					// get command
+					if( line[len-1] == ']' )
+					{
+						command = line.substr(1, len-2);
+						continue;
 					}
 				}
 
-				// get extension
-				if( line[0] == '[' && line[1] == '.' && line[len-1] == ']' )
+				// read [options] section
+				if( command == L"options" )
 				{
-					isOptions = false;
-					ext = line.substr(1, len-2);
+					if( line.find(L"use_default") != std::string::npos )
+						useDefault = line[len-1] == '1';
+
 					continue;
 				}
 
-				pos = line.find('?');
-
-				if( pos != std::string::npos )
+				// read [.ext] section
+				if( !ext.empty() )
 				{
-					isOptions = false;
-					std::wstring first  = line.substr(0, pos);
-					std::wstring second = line.substr(pos+1, len);
+					// read action
+					if( line[0] == '/' )
+					{
+						action = line;
+					}
+					else
+					{
+						// depending on current action, parse the line
+						if( action == L"/exec" )
+						{
+							pos = line.find('?');
 
-					mPairPath_App p(first, second);
+							if( pos != std::string::npos )
+							{
+								std::wstring first  = line.substr(0, pos);
+								std::wstring second = line.substr(pos+1, len);
 
-					map.insert(std::pair<std::wstring, mPairPath_App>(ext, p));
-					continue;
+								mPairPath_App p(first, second);
+
+								// { .jpg/exec, { c:\\, c:\\program files\\word.exe } }
+								map.insert(std::pair<std::wstring, mPairPath_App>(ext+action, p));
+							}
+
+							continue;
+						}
+						
+						if( action == L"/ins" )
+						{
+							pos = line.find('?');
+
+							if( pos != std::string::npos )
+							{
+								std::wstring first  = line.substr(pos+1, len);
+								std::wstring second = line.substr(0, pos);
+
+								mPairPath_App p(first, second);
+
+								// { .mp3/ins, { c:\\program files\\Aimp.exe, /insert } }
+								map.insert(std::pair<std::wstring, mPairPath_App>(ext+action, p));
+							}
+
+							continue;
+						}
+					}
 				}
 			}
 		}
@@ -137,7 +216,8 @@ int readFromIni(const wchar_t *exeFileName, appMap &map)
 	if( !error.empty() )
 	{
 		map.clear();
-		std::cout << "\nERROR: "<< error << std::endl;
+		std::cout << "\nERROR:\n";
+		doPrint(error.c_str());
 		res = -1;
 	}
 
@@ -147,52 +227,112 @@ int readFromIni(const wchar_t *exeFileName, appMap &map)
 
 int _tmain(int argc, _TCHAR* argv[])
 {
-	if( argc != 2 )
+	if( argc > 2 )
 	{
-		std::cout << "-- Wrong number of parameters!" << std::endl;
-	}
-	else
-	{
+		console = GetStdHandle(STD_OUTPUT_HANDLE);
+
 		if( readFromIni(argv[0], mMap) )
 		{
-			const wchar_t *file = argv[1];
+			std::wstring Action(argv[1]);
+
 			const wchar_t *prog = nullptr;
+			const wchar_t *file = nullptr;
 
-			size_t len = wcslen(file);
-			std::wstring sFile;
-			sFile.resize(len);
-
-			// Copy data and make it lowercase
-			std::transform(file, file+len, sFile.begin(), ::tolower);
-
-			std::wstring sName = getName(sFile);
-			std::wstring sExt  = getExtension(sFile);
-
-			if( sExt.empty() )
+			// Open single file
+			// "shellExec.exe" /exec "!/!.!"
+			if( Action == L"/exec" )
 			{
-				std::cout << "-- Extension is empty, file won't be opened" << std::endl;
-			}
-			else
-			{
-				auto rng = mMap.equal_range(sExt);
-		
-				for(auto iter = rng.first; iter != rng.second; ++iter)
-				{
-					std::wstring *pPath = &(iter->second.first);
-					std::wstring *pProg = &(iter->second.second);
+				file = argv[2];
 
-					if( pathCheck(sFile, pPath->c_str(), prog, pProg->c_str()) )
-						break;
-				}
+				size_t len = wcslen(file);
+				std::wstring sFile;
+				sFile.resize(len);
 
-				// Execution
-				if( prog || useDefault )
+				// Copy data and make it lowercase
+				std::transform(file, file+len, sFile.begin(), ::tolower);
+
+				std::wstring sName = getName(sFile);
+				std::wstring sExt  = getExtension(sFile);
+
+				if( sExt.empty() )
 				{
-					shellExecFile(sFile, prog);
+					doPrint("Extension is empty, file won't be opened");
 				}
 				else
 				{
-					std::cout << "-- No program found and [use_default] parameter is set to '0'." << std::endl;
+					auto rng = mMap.equal_range(sExt + Action);
+		
+					for(auto iter = rng.first; iter != rng.second; ++iter)
+					{
+						const wchar_t *pPath = iter->second.first.c_str();
+						const wchar_t *pProg = iter->second.second.c_str();
+
+						if( pathCheck(sFile, pPath, prog, pProg) )
+							break;
+					}
+
+					// Execution
+					if( prog || useDefault )
+					{
+						shellExecFile(sFile, prog);
+					}
+					else
+					{
+						doPrint(L"Parameter [use_default] is 'false', and no program associated with this path and this file type: ", sExt.c_str());
+					}
+				}
+			}
+
+			// Send selected files to the app
+			// "shellExec.exe" /ins !/ !&
+			if( Action == L"/ins" )
+			{
+				const wchar_t *path = argv[2];
+				size_t len_p = wcslen(path);
+
+				// for each file in the list
+				for(int i = 3; i < argc; i++)
+				{
+					file = argv[i];
+
+					size_t len_f = wcslen(file);
+					std::wstring sFile;
+					sFile.resize(len_f + len_p);
+
+					// Get full lowercase file path
+					std::transform(path, path+len_p, sFile.begin(), ::tolower);
+					std::transform(file, file+len_f, sFile.begin()+len_p, ::tolower);
+
+					std::wstring sName = getName(sFile);
+					std::wstring sExt  = getExtension(sFile);
+					std::wstring sProg = L"";
+
+					if( sExt.empty() )
+					{
+						doPrint("Extension is empty, file won't be opened");
+					}
+					else
+					{
+						auto rng = mMap.equal_range(sExt + Action);
+
+						for(auto iter = rng.first; iter != rng.second; ++iter)
+						{
+							sProg = iter->second.second;
+							sFile = iter->second.first + L" " + sFile;
+							break;
+						}
+
+						// Execution
+						if( !sProg.empty() )
+						{
+							doPrint(sProg.c_str(), sFile.c_str());
+							shellExecFile(sFile, sProg.c_str());
+						}
+						else
+						{
+							doPrint(L"Unknown file type: ", sExt.c_str(), true);
+						}
+					}
 				}
 			}
 		}
