@@ -4,11 +4,42 @@
 
 // -----------------------------------------------------------------------------------------------
 
+const wchar_t *iniFile = 
+	L"#\n"
+	L"# Options section. May contain come additional options\n"
+	L"[options]\n"
+	L"# Set [use_default] to 1 to be able to run default system program for your file\n"
+	L"use_default=0\n\n"
+
+	L"# File type section. Contains options for the files of this type\n"
+	L"[.bat,.ini]\n"
+	L"# Exec command: Opens single file using selected application\n"
+	L"# Format: [path]?[app]\n"
+	L"# [path] may be full, partial or empty\n"
+	L"# Empty [path] provides default behaviour for the file type\n"
+	L"# [app] is a full path to .exe file that will be called for this file\n"
+	L"# Usage in Far's associations: \"shellExec.exe\" /exec \"!/!.!\"\n"
+	L"/exec\n"
+	L"\\bbb\?winword.exe\n"
+	L"\\ccc\\?c:\\Users\\xbbnt9i\\AppData\\Local\\Programs\\Opera\\launcher.exe\n"
+	L"\\ddd\\?cmd.exe\n"
+	L"?notepad.exe\n\n"
+
+	L"# Another file type section\n"
+	L"[.mp3,.flac]\n"
+	L"# Batch command: passes all selected files to the application\n"
+	L"# Format: [app]?[key]\n"
+	L"# [app] is a full path to .exe file that will be called for these files\n"
+	L"# [key] is a command than [app] is using for batch processing\n"
+	L"# Usage in Far's associations: \"shellExec.exe\" /batch !/ !&\n"
+	L"/batch\n"
+	L"C:\\Program Files (x86)\\AIMP\\AIMP.exe?/insert\n";
+
 typedef std::pair<std::wstring, std::wstring>			mPairPath_App;
 typedef std::multimap<std::wstring, mPairPath_App>		appMap;
 
-appMap mMap;
-bool useDefault = false;
+appMap	mMap;
+bool	useDefault = false;
 static HANDLE console = nullptr;
 
 #define clGreen		FOREGROUND_GREEN|								  FOREGROUND_INTENSITY
@@ -46,11 +77,6 @@ void doPrint(const wchar_t *str, const wchar_t *param = L"", bool isYellow = fal
 }
 // -----------------------------------------------------------------------------------------------
 
-void aaa(std::ostream &a)
-{
-	return;
-}
-
 std::wstring getName(const std::wstring &file)
 {
 	size_t pos = file.rfind('\\');
@@ -70,6 +96,23 @@ std::wstring getExtension(const std::wstring &file)
 		ext = file.substr(pos2, file.length());
 
 	return ext;
+}
+// -----------------------------------------------------------------------------------------------
+
+void parseExtensions(const std::wstring &str, std::vector<std::wstring> &vec)
+{
+	size_t beg = 0u, end;
+
+	do {
+	
+		end = str.find(',', beg);
+		vec.push_back(str.substr(beg, end-beg));
+		beg = end + 1;
+
+	}
+	while(end != std::string::npos);
+
+	return;
 }
 // -----------------------------------------------------------------------------------------------
 
@@ -95,10 +138,51 @@ void shellExecFile(const std::wstring &file, const wchar_t *program = nullptr)
 }
 // -----------------------------------------------------------------------------------------------
 
-// Read data from the .ini-file
-int readFromIni(const wchar_t *exeFileName, appMap &map)
+// Create default .ini-file
+bool createIni(const wchar_t *exeFileName)
 {
-	int res = -1;
+	bool res = false;
+
+	std::wfstream file;
+	std::wstring fileName(exeFileName);
+	fileName.replace(fileName.length()-3, 3, L"ini");
+
+	file.open(fileName, std::fstream::in);
+
+	if( file.is_open() )
+	{
+		file.close();
+		doPrint(L"The file already exists", L"", true);
+		doPrint(L"If you want to recreate it, delete it manually and restart the program.", L"", true);
+	}
+	else
+	{
+		// If the file does not exist, we create it
+		file.open(fileName, std::fstream::in | std::fstream::out | std::fstream::app);
+
+		// Try to create default ini-file
+		if( file.is_open() )
+		{
+			res = true;
+			file.write(iniFile, wcslen(iniFile));
+			file.close();
+			doPrint("Default ini-file was created");
+		}
+		else
+		{
+			std::cout << "\nERROR:\n";
+			doPrint("Could not create ini-file", "", true);
+		}
+	}
+
+	return res;
+}
+// -----------------------------------------------------------------------------------------------
+
+// Read data from the .ini-file
+bool readFromIni(const wchar_t *exeFileName, appMap &map)
+{
+	bool res = true;
 
 	std::wfstream file;
 	std::string error("");
@@ -109,13 +193,14 @@ int readFromIni(const wchar_t *exeFileName, appMap &map)
 	map.clear();
 
 
-	// If the file exists, we read data from it. Otherwise, we create it.
-	file.open(fileName, std::fstream::in | std::fstream::out | std::fstream::app);
+	// If the file exists, we read data from it
+	file.open(fileName, std::fstream::in);
 
 	if( file.is_open() )
 	{
 		size_t len, pos, lineNo = 0;
 		std::wstring line, ext, command, action;
+		std::vector<std::wstring> vExt;
 
 		while( std::getline(file, line) && error.empty() )
 		{
@@ -129,12 +214,13 @@ int readFromIni(const wchar_t *exeFileName, appMap &map)
 				{
 					command.clear();
 					 action.clear();
-						ext.clear();
+					   vExt.clear();
 
 					// get extension
 					if( line[1] == '.' && line[len-1] == ']' )
 					{
 						ext = line.substr(1, len-2);
+						parseExtensions(ext, vExt);
 						continue;
 					}
 
@@ -156,7 +242,7 @@ int readFromIni(const wchar_t *exeFileName, appMap &map)
 				}
 
 				// read [.ext] section
-				if( !ext.empty() )
+				if( !vExt.empty() )
 				{
 					// read action
 					if( line[0] == '/' )
@@ -177,14 +263,15 @@ int readFromIni(const wchar_t *exeFileName, appMap &map)
 
 								mPairPath_App p(first, second);
 
-								// { .jpg/exec, { c:\\, c:\\program files\\word.exe } }
-								map.insert(std::pair<std::wstring, mPairPath_App>(ext+action, p));
+								// Create object like that: { .jpg/exec, { c:\\, c:\\program files\\word.exe } }
+								for(size_t i = 0; i < vExt.size(); i++)
+									map.insert(std::pair<std::wstring, mPairPath_App>(vExt[i] + action, p));
 							}
 
 							continue;
 						}
 						
-						if( action == L"/ins" )
+						if( action == L"/batch" )
 						{
 							pos = line.find('?');
 
@@ -195,8 +282,9 @@ int readFromIni(const wchar_t *exeFileName, appMap &map)
 
 								mPairPath_App p(first, second);
 
-								// { .mp3/ins, { c:\\program files\\Aimp.exe, /insert } }
-								map.insert(std::pair<std::wstring, mPairPath_App>(ext+action, p));
+								// Create object like that: { .mp3/batch, { c:\\program files\\Aimp.exe, /insert } }
+								for(size_t i = 0; i < vExt.size(); i++)
+									map.insert(std::pair<std::wstring, mPairPath_App>(vExt[i] + action, p));
 							}
 
 							continue;
@@ -210,15 +298,15 @@ int readFromIni(const wchar_t *exeFileName, appMap &map)
 	}
 	else
 	{
-		error = "Could not open .ini file";
+		error = "Could not open .ini file\nRun program without parameters to recreate it.";
 	}
 
 	if( !error.empty() )
 	{
 		map.clear();
 		std::cout << "\nERROR:\n";
-		doPrint(error.c_str());
-		res = -1;
+		doPrint(error.c_str(), "", true);
+		res = false;
 	}
 
 	return res;
@@ -227,10 +315,17 @@ int readFromIni(const wchar_t *exeFileName, appMap &map)
 
 int _tmain(int argc, _TCHAR* argv[])
 {
+	console = GetStdHandle(STD_OUTPUT_HANDLE);
+
+	if( argc == 1 )
+	{
+		doPrint("Program is started without parameters");
+		doPrint("Trying to create ini-file...");
+		createIni(argv[0]);
+	}
+
 	if( argc > 2 )
 	{
-		console = GetStdHandle(STD_OUTPUT_HANDLE);
-
 		if( readFromIni(argv[0], mMap) )
 		{
 			std::wstring Action(argv[1]);
@@ -284,55 +379,75 @@ int _tmain(int argc, _TCHAR* argv[])
 			}
 
 			// Send selected files to the app
-			// "shellExec.exe" /ins !/ !&
-			if( Action == L"/ins" )
+			// "shellExec.exe" /batch !/ !&
+			if( Action == L"/batch" )
 			{
 				const wchar_t *path = argv[2];
+				const int FirstFileNum = 3;
 				size_t len_p = wcslen(path);
 
+				std::wstring sParams;
+				std::wstring sAction;
+				std::wstring sProg;
+				std::wstring sFile;
+				std::wstring sExt;
+
+				// Assume average fileName length is about 33 symbols
+				sParams.reserve((argc-FirstFileNum) * ( len_p + 35));
+
 				// for each file in the list
-				for(int i = 3; i < argc; i++)
+				for(int i = FirstFileNum; i < argc; i++)
 				{
 					file = argv[i];
 
-					size_t len_f = wcslen(file);
-					std::wstring sFile;
-					sFile.resize(len_f + len_p);
-
 					// Get full lowercase file path
-					std::transform(path, path+len_p, sFile.begin(), ::tolower);
-					std::transform(file, file+len_f, sFile.begin()+len_p, ::tolower);
+					sFile.resize(len_p + wcslen(file));
+					sFile  = path;
+					sFile += file;
 
-					std::wstring sName = getName(sFile);
-					std::wstring sExt  = getExtension(sFile);
-					std::wstring sProg = L"";
+					sExt = getExtension(sFile);
+					std::transform(sExt.c_str(), sExt.c_str() + sExt.length(), sExt.begin(), ::tolower);
 
 					if( sExt.empty() )
 					{
-						doPrint("Extension is empty, file won't be opened");
+						doPrint(L"Extension is empty, file won't be opened: ", file, true);
 					}
 					else
 					{
 						auto rng = mMap.equal_range(sExt + Action);
+						auto iter = rng.first;
 
-						for(auto iter = rng.first; iter != rng.second; ++iter)
+						if( iter == rng.second )
 						{
-							sProg = iter->second.second;
-							sFile = iter->second.first + L" " + sFile;
-							break;
-						}
-
-						// Execution
-						if( !sProg.empty() )
-						{
-							doPrint(sProg.c_str(), sFile.c_str());
-							shellExecFile(sFile, sProg.c_str());
+							doPrint(L"Unsupported file type: ", file, true);
 						}
 						else
 						{
-							doPrint(L"Unknown file type: ", sExt.c_str(), true);
+							if( i == FirstFileNum )
+							{
+								sAction = iter->second.first;
+								sProg   = iter->second.second;
+							}
+
+							if( sAction == iter->second.first && sProg == iter->second.second )
+							{
+								// Don't need sExt anymore, so using it as a tmp string
+								sExt = sProg + L" " + sAction + L" ";
+								doPrint(sExt.c_str(), file);
+								sParams += L" " + sFile;
+							}
 						}
 					}
+				}
+
+				if( sParams.empty() )
+				{
+					doPrint(L"No files found", L"", true);
+				}
+				else
+				{
+					sParams = sAction + sParams;
+					shellExecFile(sParams, sProg.c_str());
 				}
 			}
 		}
