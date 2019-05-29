@@ -1,6 +1,15 @@
 #include "stdafx.h"
 #include "myApp.h"
 
+
+
+#include <codecvt>
+#include <cvt/wstring>
+#include <iostream>
+#include <locale>
+#include <string>
+#include <codecvt>
+
 HANDLE myApp::console = nullptr;
 
 const wchar_t *myApp::iniFile = 
@@ -141,7 +150,7 @@ bool myApp::pathCheck(const std::wstring &file, const wchar_t *substr, const wch
 void myApp::shellExecFile(const std::wstring &file, const wchar_t *program)
 {
 	HINSTANCE err = program ? 
-		ShellExecuteW(NULL, 0, program, file.c_str(), NULL, SW_SHOW) 
+		ShellExecuteW(NULL, 0, program, file.c_str(), NULL, SW_SHOW)
 		:
 		ShellExecuteW(NULL, 0, file.c_str(), 0, 0 , SW_SHOW);
 
@@ -525,18 +534,26 @@ void myApp::processBatchFile(int argc, _TCHAR* argv[], const wchar_t* prog, cons
 		tmpFile = argv[3];
 		len_p	= wcslen(path);
 
-		std::wfstream	file;
-		std::wstring	line;
+		std::fstream file;
+		std::string	 line;
 
 		// If the file exists, we read data from it
 		file.open(tmpFile, std::fstream::in);
 
 		if( file.is_open() )
 		{
+			wchar_t buf[MAX_PATH];
+
 			while( std::getline(file, line) )
 			{
 				if( line.length() > 3 )
-					vec.push_back(line);
+				{
+					// Without this cyrillic symbols won't work here
+					if( MultiByteToWideChar(CP_OEMCP, 0, line.c_str(), -1, buf, MAX_PATH) )
+					{
+						vec.push_back(buf);
+					}
+				}
 			}
 
 			file.close();
@@ -558,6 +575,8 @@ void myApp::processBatchFile(int argc, _TCHAR* argv[], const wchar_t* prog, cons
 		std::wstring sProg;
 		std::wstring sFile;
 		std::wstring sExt;
+
+		char bufFile[MAX_PATH];
 
 		const size_t lenMax = maxCmdLineLen;
 		sParams.reserve(lenMax);
@@ -599,8 +618,9 @@ void myApp::processBatchFile(int argc, _TCHAR* argv[], const wchar_t* prog, cons
 					if( sAction == iter->second.first && sProg == iter->second.second )
 					{
 						// Don't need sExt anymore, so using it as a tmp string
-						sExt = sProg + L" " + sAction + L" ";
-						doPrint(sExt.c_str(), file);
+						sExt = sProg + L" " + sAction + L" " + file;
+						WideCharToMultiByte(CP_INSTALLED, 0, sExt.c_str(), -1, bufFile, MAX_PATH, NULL, NULL);
+						doPrint(bufFile);
 
 						size_t lenParams = sParams.length();
 						size_t lenFile   = sFile.length() + 1;
