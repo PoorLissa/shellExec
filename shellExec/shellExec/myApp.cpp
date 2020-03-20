@@ -515,6 +515,18 @@ void myApp::processBatch(int argc, _TCHAR* argv[], const wchar_t* prog, const wc
 // Far will delete this file when the app exits.
 void myApp::processBatchFile(int argc, _TCHAR* argv[], const wchar_t* prog, const wchar_t* tmpFile, std::wstring &Action)
 {
+	auto do_skip_BOM = [](std::fstream &f)
+	{
+		// The UTF-8 representation of the BOM is the(hexadecimal) byte sequence 0xEF, 0xBB, 0xBF
+		char a = f.get();
+		char b = f.get();
+		char c = f.get();
+
+		if (a != (char)(0xEF) || b != (char)(0xBB) || c != (char)(0xBF))
+			f.seekg(0);
+	};
+
+
 	std::wstring err;
 	std::vector<std::wstring> vec, vecErr;
 	const wchar_t *path = nullptr;
@@ -534,8 +546,8 @@ void myApp::processBatchFile(int argc, _TCHAR* argv[], const wchar_t* prog, cons
 		tmpFile = argv[3];
 		len_p	= wcslen(path);
 
-		std::fstream file;
-		std::string	 line;
+		std::fstream	file;
+		std::string		line;
 
 		// If the file exists, we read data from it
 		file.open(tmpFile, std::fstream::in);
@@ -544,14 +556,21 @@ void myApp::processBatchFile(int argc, _TCHAR* argv[], const wchar_t* prog, cons
 		{
 			wchar_t buf[MAX_PATH];
 
+
+			// Now that we are making Far Manager to save the file as UTF-8, we need to check and skip the BOM record
+			do_skip_BOM(file);
+
+
 			while( std::getline(file, line) )
 			{
 				if( line.length() > 3 )
 				{
 					// Without this cyrillic symbols won't work here
-					if( MultiByteToWideChar(CP_OEMCP, 0, line.c_str(), -1, buf, MAX_PATH) )
+					UINT codePage = CP_UTF8;													// was CP_OEMCP for Far's !@! -- now we use !@U!
+
+					if (MultiByteToWideChar(codePage, 0, line.c_str(), -1, buf, MAX_PATH))
 					{
-						vec.push_back(buf);
+						vec.emplace_back(buf);
 					}
 				}
 			}
@@ -570,11 +589,7 @@ void myApp::processBatchFile(int argc, _TCHAR* argv[], const wchar_t* prog, cons
 
 	if( err.empty() )
 	{
-		std::wstring sParams;
-		std::wstring sAction;
-		std::wstring sProg;
-		std::wstring sFile;
-		std::wstring sExt;
+		std::wstring sParams, sAction, sProg, sFile, sExt;
 
 		char bufFile[MAX_PATH];
 
@@ -619,7 +634,10 @@ void myApp::processBatchFile(int argc, _TCHAR* argv[], const wchar_t* prog, cons
 					{
 						// Don't need sExt anymore, so using it as a tmp string
 						sExt = sProg + L" " + sAction + L" " + file;
+
+						// Used only for the printing purposes, no actual data afected
 						WideCharToMultiByte(CP_INSTALLED, 0, sExt.c_str(), -1, bufFile, MAX_PATH, NULL, NULL);
+
 						doPrint(bufFile);
 
 						size_t lenParams = sParams.length();
