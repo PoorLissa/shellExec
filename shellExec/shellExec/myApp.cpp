@@ -347,16 +347,16 @@ bool myApp::readFromIni(const wchar_t *exeFileName)
 
 void myApp::process(int argc, _TCHAR* argv[])
 {
-	if( argc == 1 )
+	if (argc == 1)
 	{
 		doPrint("Program is started without parameters");
 		doPrint("Trying to create ini-file...");
 		createIni(argv[0]);
 	}
 
-	if( argc > 2 )
+	if (argc > 2)
 	{
-		if( readFromIni(argv[0]) )
+		if (readFromIni(argv[0]))
 		{
 			const wchar_t *prog = nullptr;
 			const wchar_t *file = nullptr;
@@ -510,9 +510,9 @@ void myApp::processBatch(int argc, _TCHAR* argv[], const wchar_t* prog, const wc
 
 // Send selected files to the app ["shellExec.exe" /batch !/ !@!]
 // Command line length can't be greater than some finite number (2k or 8k).
-// If Far sends many files, sometimes we'll get error "Cmd line is too long".
+// If Far sends too many files, sometimes we'll get error "Cmd line is too long".
 // Happily, Far can copy all selected file names to tmp file and give us the file's name.
-// Far will delete this file when the app exits.
+// Far will automatically delete this file when the app terminates
 void myApp::processBatchFile(int argc, _TCHAR* argv[], const wchar_t* prog, const wchar_t* tmpFile, std::wstring &Action)
 {
 	auto do_skip_BOM = [](std::fstream &f)
@@ -529,30 +529,61 @@ void myApp::processBatchFile(int argc, _TCHAR* argv[], const wchar_t* prog, cons
 
 	std::wstring err;
 	std::vector<std::wstring> vec, vecErr;
-	const wchar_t *path = nullptr;
+	std::wstring path = L"";
+	std::wstring tmpFileStr = L"";
 	size_t len_p;
 
-	if( argc != 4 )
+	// Param #4 is passed as a part of param #3:
+	// '/batchFile "I:\Music\Metal Music\Isis\2004 - Panopticon\" e:\Temp\FAR6CAA.tmp' ==>
+	//	0. executable
+	//	1. /batchFile
+	//	2. "I:\Music\Metal Music\Isis\2004 - Panopticon\" e:\Temp\FAR6CAA.tmp
+	if (argc == 3)
 	{
-		err = L"Wrong number of parameters (" + Action + L")\nParams are:\n";
+		tmpFileStr = argv[2];
 
-		for(int i = 0; i < argc; i++)
+		size_t idx = tmpFileStr.find_last_of(' ');
+		path = tmpFileStr.substr(0, idx-1);
+
+		if (path.back() != '\\')
+			path.push_back('\\');
+
+		tmpFileStr = tmpFileStr.substr(idx + 1, tmpFileStr.length());
+	}
+	else if (argc != 4)
+	{
+		err  = L"Wrong number of parameters\n";
+		err += L"Action is " + Action + L"\n";
+		err += L"Expected num of params is 4. Actual num of params is " + std::to_wstring(argc) + L"\n";
+		err += L"Params are:\n";
+
+		for (int i = 0; i < argc; i++)
+		{
 			err += std::wstring(argv[i]) + L"\n";
+		}
 	}
 
-	if( err.empty() )
+	if (err.empty())
 	{
-		path	= argv[2];
-		tmpFile = argv[3];
-		len_p	= wcslen(path);
+		if (path.length() == 0)
+		{
+			path = argv[2];
+			tmpFile = argv[3];
+			len_p = path.length();
+		}
+		else
+		{
+			tmpFile = tmpFileStr.c_str();
+			len_p = path.length();
+		}
 
-		std::fstream	file;
-		std::string		line;
+		std::fstream file;
+		std::string	 line;
 
 		// If the file exists, we read data from it
 		file.open(tmpFile, std::fstream::in);
 
-		if( file.is_open() )
+		if (file.is_open())
 		{
 			wchar_t buf[MAX_PATH];
 
@@ -561,9 +592,9 @@ void myApp::processBatchFile(int argc, _TCHAR* argv[], const wchar_t* prog, cons
 			do_skip_BOM(file);
 
 
-			while( std::getline(file, line) )
+			while (std::getline(file, line))
 			{
-				if( line.length() > 3 )
+				if (line.length() > 3)
 				{
 					// Without this cyrillic symbols won't work here
 					UINT codePage = CP_UTF8;													// was CP_OEMCP for Far's !@! -- now we use !@U!
@@ -577,17 +608,18 @@ void myApp::processBatchFile(int argc, _TCHAR* argv[], const wchar_t* prog, cons
 
 			file.close();
 
-			if( !vec.size() )
+			if (!vec.size())
 				err = L"No files found";
 		}
 		else
 		{
-			err  = L"Could not open the file with file names: ";
+			err  = L"Could not open the file with file names: '";
 			err += tmpFile;
+			err += L"'";
 		}
 	}
 
-	if( err.empty() )
+	if (err.empty())
 	{
 		std::wstring sParams, sAction, sProg, sFile, sExt;
 
@@ -597,7 +629,7 @@ void myApp::processBatchFile(int argc, _TCHAR* argv[], const wchar_t* prog, cons
 		sParams.reserve(lenMax);
 
 		// for each file in the list
-		for(size_t i = 0u; i < vec.size(); i++)
+		for (size_t i = 0u; i < vec.size(); i++)
 		{
 			const wchar_t *file = vec[i].c_str();
 
